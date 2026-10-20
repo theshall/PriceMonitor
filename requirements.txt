@@ -5,3 +5,4 @@ SQLAlchemy
 PyMySQL
 python-dotenv
 APScheduler
+pytest
