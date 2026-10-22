@@ -1,12 +1,21 @@
+import pytest
 from fastapi.testclient import TestClient
-from src.main import app
 from sqlalchemy import text
-from src.database import engine
 
-
+import src.products as products
+from src.main import app
+from src.database import test_engine
 
 client = TestClient(app)
 
+
+@pytest.fixture(autouse=True)
+def use_test_database(monkeypatch):
+    monkeypatch.setattr(
+        products,
+        "engine",
+        test_engine
+    )
 
 def test_health_check():
     response = client.get("/api/health")
@@ -57,7 +66,7 @@ def test_create_product_with_valid_name():
 
     finally:
         if product_id is not None:
-            with engine.begin() as connection:
+            with test_engine.begin() as connection:
                 connection.execute(
                     text("DELETE FROM products WHERE id = :id"),
                     {"id": product_id},
