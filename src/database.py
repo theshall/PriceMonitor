@@ -19,6 +19,16 @@ engine = create_engine(
     pool_pre_ping=True,
 )
 
+# Configuração do banco exclusivo para testes
+test_database_url = database_url.set(
+    database="price_monitor_test"
+)
+
+test_engine = create_engine(
+    test_database_url,
+    pool_pre_ping=True
+)
+
 
 def test_connection():
     with engine.connect() as connection:

@@ -1,5 +1,9 @@
 from fastapi.testclient import TestClient
 from src.main import app
+from sqlalchemy import text
+from src.database import engine
+
+
 
 client = TestClient(app)
 
@@ -28,21 +32,33 @@ def test_create_product_without_name():
 
 
 def test_create_product_with_valid_name():
-    response = client.post(
-        "/api/products",
-        json={
-            "name": "Produto criado pelo teste automatizado",
-            "brand": "Marca de teste",
-            "model": "Modelo T100",
-        },
-    )
+    product_id = None
 
-    assert response.status_code == 201
+    try:
+        response = client.post(
+            "/api/products",
+            json={
+                "name": "Produto criado pelo teste automatizado",
+                "brand": "Marca de teste",
+                "model": "Modelo T100",
+            },
+        )
 
-    data = response.json()
+        assert response.status_code == 201
 
-    assert data["message"] == "Produto cadastrado com sucesso"
-    assert data["id"] is not None
-    assert data["name"] == "Produto criado pelo teste automatizado"
-    assert data["brand"] == "Marca de teste"
-    assert data["model"] == "Modelo T100"
+        data = response.json()
+        product_id = data["id"]
+
+        assert product_id is not None
+        assert data["message"] == "Produto cadastrado com sucesso"
+        assert data["name"] == "Produto criado pelo teste automatizado"
+        assert data["brand"] == "Marca de teste"
+        assert data["model"] == "Modelo T100"
+
+    finally:
+        if product_id is not None:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("DELETE FROM products WHERE id = :id"),
+                    {"id": product_id},
+                )
