@@ -23,3 +23,24 @@ def list_offers():
             for row in result.mappings()
         ]
 
+
+def create_offer(offer_data):
+    query = text("""
+        INSERT INTO offers (
+            product_id,
+            store_name,
+            price,
+            product_url
+        )
+        VALUES (
+            :product_id,
+            :store_name,
+            :price,
+            :product_url
+        )
+    """)
+
+    with engine.begin() as connection:
+        result = connection.execute(query, offer_data)
+
+        return result.lastrowid
