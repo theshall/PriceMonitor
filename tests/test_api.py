@@ -99,3 +99,66 @@ def test_create_offer_with_negative_price():
     )
 
     assert response.status_code == 422
+
+
+def test_create_product_and_offer():
+    product_id = None
+    offer_id = None
+
+    try:
+        # 1. Cadastrar produto temporário
+        product_response = client.post(
+            "/api/products",
+            json={
+                "name": "Produto Integração Teste",
+                "brand": "Marca Teste",
+                "model": "INT-001"
+            }
+        )
+
+        assert product_response.status_code == 201
+
+        product_id = product_response.json()["id"]
+
+        # 2. Cadastrar oferta vinculada ao produto
+        offer_response = client.post(
+            "/api/offers",
+            json={
+                "product_id": product_id,
+                "store_name": "Loja Integração",
+                "price": "99.90",
+                "product_url": "https://example.com/teste"
+            }
+        )
+
+        assert offer_response.status_code == 201
+
+        offer_id = offer_response.json()["id"]
+
+        # 3. Verificar se a oferta aparece na listagem
+        list_response = client.get("/api/offers")
+
+        assert list_response.status_code == 200
+
+        offers_data = list_response.json()
+
+        assert any(
+            offer["id"] == offer_id
+            and offer["product_id"] == product_id
+            for offer in offers_data
+        )
+
+    finally:
+        # 4. Excluir oferta antes do produto
+        with test_engine.begin() as connection:
+            if offer_id is not None:
+                connection.execute(
+                    text("DELETE FROM offers WHERE id = :id"),
+                    {"id": offer_id}
+                )
+
+            if product_id is not None:
+                connection.execute(
+                    text("DELETE FROM products WHERE id = :id"),
+                    {"id": product_id}
+                )
