@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
-
+import src.offers as offers
 import src.products as products
 from src.main import app
 from src.database import test_engine
@@ -16,6 +16,12 @@ def use_test_database(monkeypatch):
         "engine",
         test_engine
     )
+    monkeypatch.setattr(
+        offers,
+        "engine",
+        test_engine
+    )
+
 
 def test_health_check():
     response = client.get("/api/health")
@@ -71,3 +77,25 @@ def test_create_product_with_valid_name():
                     text("DELETE FROM products WHERE id = :id"),
                     {"id": product_id},
                 )
+
+def test_list_offers():
+    response = client.get("/api/offers")
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert isinstance(data, list)
+
+def test_create_offer_with_negative_price():
+    response = client.post(
+        "/api/offers",
+        json={
+            "product_id": 1,
+            "store_name": "Loja de Teste",
+            "price": "-50.00",
+            "product_url": "https://example.com/produto"
+        }
+    )
+
+    assert response.status_code == 422
