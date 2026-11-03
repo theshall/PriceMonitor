@@ -14,6 +14,7 @@ from src.database import test_engine
 from src.monitoring import monitor_offer
 from src.simulated_collector import collect_simulated_price
 from src.price_alerts import write_price_drop_alert
+from src.telegram_alerts import send_telegram_alert
 
 # Define a queda mínima, em porcentagem, para exibir um alerta.
 MIN_ALERT_DROP_PERCENT = Decimal("5.00")
@@ -34,6 +35,12 @@ def main():
         "--min-alert-percent",
         default=str(MIN_ALERT_DROP_PERCENT),
         help="Queda mínima para alertar, em porcentagem. Padrão: 5.",
+    )
+        # Ativa o envio ao Telegram apenas quando solicitado no terminal.
+    parser.add_argument(
+        "--telegram",
+        action="store_true",
+        help="Envia os alertas simulados ao Telegram.",
     )
     args = parser.parse_args()
 
@@ -159,6 +166,15 @@ def main():
 
             if message is not None:
                 print(message, flush=True)
+                if args.telegram:
+                    try:
+                        # Envia o mesmo alerta já gravado no arquivo local.
+                        send_telegram_alert(message)
+                    except RuntimeError as error:
+                        # A falha no envio é registrada e o monitor continua.
+                        print(f"Falha no envio ao Telegram: {error}", flush=True)
+                    else:
+                        print("Alerta enviado ao Telegram.", flush=True)                
             elif comparison["has_drop"]:
                 print("Queda abaixo do limite de alerta.", flush=True)
             else:
