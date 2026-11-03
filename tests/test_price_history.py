@@ -4,6 +4,8 @@ from decimal import Decimal
 
 from sqlalchemy import text
 
+from functools import partial
+from src.monitoring import monitor_offer
 import src.price_history as history
 from src.database import test_engine
 from src.simulated_collector import collect_simulated_price
@@ -58,19 +60,20 @@ def test_register_and_list_price_history(monkeypatch):
         saved_ids = []
 
         for scenario in scenarios:
-            result = collect_simulated_price(scenario)
+            # Prepara o coletor para executar o cenário desta rodada.
+            collector = partial(collect_simulated_price, scenario)
 
-            # Confirma a origem dos dados usados neste teste.
-            assert result["source"] == "simulated"
+            # Executa a rotina que será usada pelo monitor.
+            history_id = monitor_offer(
+                offer_id=offer_id,
+                collector=collector,
+                register_price=history.register_price,
+            )
 
-            # Registra somente consultas com preço disponível.
-            if result["available"]:
-                history_id = history.register_price(
-                    offer_id,
-                    result["price"],
-                )
+            # Ofertas indisponíveis retornam None.
+            if history_id is not None:
                 saved_ids.append(history_id)
-
+                
         # Consulta o histórico pela função usada na aplicação.
         records = history.list_price_history(offer_id)
 
