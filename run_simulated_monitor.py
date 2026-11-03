@@ -1,8 +1,11 @@
 """Executa o monitor simulado periodicamente no banco de testes."""
 
+from src.price_comparison import calculate_price_drop
 from functools import partial
 from itertools import cycle
-
+from decimal import Decimal
+from datetime import datetime
+from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy import text
 
@@ -11,6 +14,8 @@ from src.database import test_engine
 from src.monitoring import monitor_offer
 from src.simulated_collector import collect_simulated_price
 
+# Define a queda mínima, em porcentagem, para exibir um alerta.
+MIN_ALERT_DROP_PERCENT = Decimal("5.00")
 
 def main():
     # Verifica o banco configurado antes de criar qualquer registro.
@@ -70,7 +75,7 @@ def main():
             offer_id = result.lastrowid
 
         def run_collection():
-            # Escolhe o próximo cenário a cada execução.
+            # Escolhe o próximo cenário da simulação.
             scenario = next(scenarios)
             collector = partial(collect_simulated_price, scenario)
 
@@ -81,17 +86,65 @@ def main():
                     register_price=history.register_price,
                 )
             except TimeoutError:
-                # Registra a falha no terminal e permite a próxima rodada.
+                # Permite que o agendamento continue após uma falha.
                 print(f"[{scenario}] Falha simulada de conexão.", flush=True)
                 return
 
             if history_id is None:
                 print(f"[{scenario}] Produto indisponível.", flush=True)
-            else:
-                print(
-                    f"[{scenario}] Histórico registrado. ID: {history_id}",
-                    flush=True,
+                return
+
+            print(
+                f"[{scenario}] Histórico registrado. ID: {history_id}",
+                flush=True,
+            )
+
+            # Consulta o histórico da oferta exclusiva desta simulação.
+            records = history.list_price_history(offer_id)
+
+            # A primeira coleta estabelece o preço de referência.
+            if len(records) < 2:
+                print("Primeiro preço registrado para comparação.", flush=True)
+                return
+
+            # Compara os dois últimos preços registrados.
+            previous_price = records[-2]["price"]
+            current_price = records[-1]["price"]
+
+            comparison = calculate_price_drop(
+                previous_price,
+                current_price,
+            )
+
+            if comparison["has_drop"]:
+                # Registra a queda no histórico, mas só alerta a partir do limite.
+                if comparison["percentage"] < MIN_ALERT_DROP_PERCENT:
+                    print("Queda abaixo do limite de alerta.", flush=True)
+                    return
+                # Formata os valores para apresentação em português.
+                difference = format(
+                    comparison["difference"], ".2f"
+                ).replace(".", ",")
+                percentage = format(
+                    comparison["percentage"], ".2f"
+                ).replace(".", ",")
+
+                message = (
+                    f"QUEDA SIMULADA: economia de R$ {difference} "
+                    f"({percentage}%)."
                 )
+
+                # Acrescenta o alerta ao arquivo sem sobrescrever os anteriores.
+                alert_path = Path(__file__).with_name("simulated_alerts.log")
+                timestamp = datetime.now().astimezone().isoformat(
+                    timespec="seconds"
+                )
+                with alert_path.open("a", encoding="utf-8") as alert_file:
+                    alert_file.write(f"{timestamp} | {message}\n")
+
+                print(message, flush=True)
+            else:
+                print("Sem queda em relação ao preço anterior.", flush=True)
 
         # Impede execuções simultâneas da mesma tarefa.
         scheduler.add_job(
