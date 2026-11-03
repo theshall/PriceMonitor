@@ -4,7 +4,7 @@ import argparse
 from src.price_comparison import calculate_price_drop
 from functools import partial
 from itertools import cycle
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import datetime
 from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -29,7 +29,24 @@ def main():
         default=5,
         help="Intervalo entre coletas, em segundos. Padrão: 5.",
     )
+        # Permite escolher o limite de alerta em cada execução.
+    parser.add_argument(
+        "--min-alert-percent",
+        default=str(MIN_ALERT_DROP_PERCENT),
+        help="Queda mínima para alertar, em porcentagem. Padrão: 5.",
+    )
     args = parser.parse_args()
+
+    # Valida o limite antes de abrir a conexão com o banco.
+    try:
+        min_alert_percent = Decimal(args.min_alert_percent)
+    except InvalidOperation:
+        parser.error("--min-alert-percent deve ser um número, como 5 ou 7.5.")
+
+    if not min_alert_percent.is_finite() or not (
+        Decimal("0") <= min_alert_percent <= Decimal("100")
+    ):
+        parser.error("--min-alert-percent deve estar entre 0 e 100.")
 
     # Rejeita intervalos inválidos antes de acessar o banco.
     if args.interval_seconds <= 0:
@@ -135,7 +152,7 @@ def main():
 
             if comparison["has_drop"]:
                 # Registra a queda no histórico, mas só alerta a partir do limite.
-                if comparison["percentage"] < MIN_ALERT_DROP_PERCENT:
+                if comparison["percentage"] < min_alert_percent:
                     print("Queda abaixo do limite de alerta.", flush=True)
                     return
                 # Formata os valores para apresentação em português.
