@@ -25,3 +25,8 @@ class OfferCreate(BaseModel):
     )
 
     product_url: HttpUrl | None = None
+
+class PriceHistoryCreate(BaseModel):
+    # Usa Decimal para representar valores monetários com precisão.
+    # Os limites seguem a coluna DECIMAL(10, 2) do MySQL.
+    price: Decimal = Field(gt=0, max_digits=10, decimal_places=2)

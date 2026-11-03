@@ -1,6 +1,8 @@
 from fastapi import FastAPI, HTTPException
 from sqlalchemy.exc import IntegrityError
-
+from fastapi import FastAPI, HTTPException, Path
+from src.schemas import ProductCreate, OfferCreate, PriceHistoryCreate
+import src.price_history as history
 
 from src.products import create_product, list_products
 from src.offers import create_offer, list_offers
@@ -69,4 +71,33 @@ def post_offer(offer: OfferCreate):
         "message": "Oferta cadastrada com sucesso",
         "id": offer_id,
         **offer_data
+    }
+
+@app.get("/api/offers/{offer_id}/price-history")
+def get_price_history(offer_id: int = Path(gt=0)):
+    # Consulta os preços da oferta na ordem em que foram registrados.
+    return history.list_price_history(offer_id)
+
+
+@app.post("/api/offers/{offer_id}/price-history", status_code=201)
+def post_price_history(
+    entry: PriceHistoryCreate,
+    offer_id: int = Path(gt=0),
+):
+    try:
+        # Registra o preço e deixa o MySQL preencher checked_at.
+        history_id = history.register_price(offer_id, entry.price)
+    except IntegrityError as error:
+        # O MySQL usa o código 1452 quando a oferta referenciada não existe.
+        if error.orig.args and error.orig.args[0] == 1452:
+            raise HTTPException(
+                status_code=404,
+                detail="Oferta não encontrada.",
+            ) from error
+        raise
+
+    return {
+        "id": history_id,
+        "offer_id": offer_id,
+        "price": format(entry.price, ".2f"),
     }
