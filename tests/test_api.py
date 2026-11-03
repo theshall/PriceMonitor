@@ -6,6 +6,7 @@ import src.products as products
 from src.main import app
 from src.database import test_engine
 from decimal import Decimal
+from sqlalchemy.exc import IntegrityError
 
 import src.price_history as history
 client = TestClient(app)
@@ -13,6 +14,11 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def use_test_database(monkeypatch):
+# Interrompe os testes deste arquivo se a conexão apontar
+# para um banco diferente do banco exclusivo de testes.
+    assert test_engine.url.database == "price_monitor_test", (
+        "Os testes devem usar exclusivamente price_monitor_test."
+    )
     monkeypatch.setattr(
         products,
         "engine",
@@ -213,3 +219,35 @@ def test_create_price_history_with_invalid_price(invalid_price):
         error["loc"] == ["body", "price"]
         for error in errors
     )
+
+
+def test_create_price_history_for_missing_offer(monkeypatch):
+    # Simula o erro 1452 do MySQL para uma oferta inexistente.
+    def simulate_missing_offer(offer_id, price):
+        database_error = Exception(
+            1452,
+            "Oferta referenciada não existe.",
+        )
+        raise IntegrityError(
+            statement="INSERT INTO price_history",
+            params={"offer_id": offer_id, "price": price},
+            orig=database_error,
+        )
+
+    # Substitui a gravação somente durante este teste.
+    # O pytest restaura a função original automaticamente ao final.
+    monkeypatch.setattr(
+        history,
+        "register_price",
+        simulate_missing_offer,
+    )
+
+    # Usa um preço válido para alcançar o tratamento do erro.
+    response = client.post(
+        "/api/offers/1/price-history",
+        json={"price": "89.90"},
+    )
+
+    # Confere o código HTTP e a mensagem devolvida pela API.
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Oferta não encontrada."
