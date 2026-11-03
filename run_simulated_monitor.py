@@ -1,5 +1,6 @@
 """Executa o monitor simulado periodicamente no banco de testes."""
 
+import argparse
 from src.price_comparison import calculate_price_drop
 from functools import partial
 from itertools import cycle
@@ -18,6 +19,22 @@ from src.simulated_collector import collect_simulated_price
 MIN_ALERT_DROP_PERCENT = Decimal("5.00")
 
 def main():
+        # Mantém o intervalo curto como padrão para a simulação.
+    parser = argparse.ArgumentParser(
+        description="Executa o monitor simulado no banco de testes."
+    )
+    parser.add_argument(
+        "--interval-seconds",
+        type=int,
+        default=5,
+        help="Intervalo entre coletas, em segundos. Padrão: 5.",
+    )
+    args = parser.parse_args()
+
+    # Rejeita intervalos inválidos antes de acessar o banco.
+    if args.interval_seconds <= 0:
+        parser.error("--interval-seconds deve ser maior que zero.")
+        
     # Verifica o banco configurado antes de criar qualquer registro.
     if test_engine.url.database != "price_monitor_test":
         raise RuntimeError("A simulação exige o banco price_monitor_test.")
@@ -150,7 +167,7 @@ def main():
         scheduler.add_job(
             run_collection,
             trigger="interval",
-            seconds=5,
+            seconds=args.interval_seconds,
             max_instances=1,
             coalesce=True,
         )
