@@ -5,7 +5,6 @@ from src.price_comparison import calculate_price_drop
 from functools import partial
 from itertools import cycle
 from decimal import Decimal, InvalidOperation
-from datetime import datetime
 from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
 from sqlalchemy import text
@@ -14,6 +13,7 @@ import src.price_history as history
 from src.database import test_engine
 from src.monitoring import monitor_offer
 from src.simulated_collector import collect_simulated_price
+from src.price_alerts import write_price_drop_alert
 
 # Define a queda mínima, em porcentagem, para exibir um alerta.
 MIN_ALERT_DROP_PERCENT = Decimal("5.00")
@@ -150,33 +150,17 @@ def main():
                 current_price,
             )
 
-            if comparison["has_drop"]:
-                # Registra a queda no histórico, mas só alerta a partir do limite.
-                if comparison["percentage"] < min_alert_percent:
-                    print("Queda abaixo do limite de alerta.", flush=True)
-                    return
-                # Formata os valores para apresentação em português.
-                difference = format(
-                    comparison["difference"], ".2f"
-                ).replace(".", ",")
-                percentage = format(
-                    comparison["percentage"], ".2f"
-                ).replace(".", ",")
+                        # Grava o alerta somente quando a queda alcança o limite.
+            message = write_price_drop_alert(
+                comparison,
+                min_alert_percent,
+                Path(__file__).with_name("simulated_alerts.log"),
+            )
 
-                message = (
-                    f"QUEDA SIMULADA: economia de R$ {difference} "
-                    f"({percentage}%)."
-                )
-
-                # Acrescenta o alerta ao arquivo sem sobrescrever os anteriores.
-                alert_path = Path(__file__).with_name("simulated_alerts.log")
-                timestamp = datetime.now().astimezone().isoformat(
-                    timespec="seconds"
-                )
-                with alert_path.open("a", encoding="utf-8") as alert_file:
-                    alert_file.write(f"{timestamp} | {message}\n")
-
+            if message is not None:
                 print(message, flush=True)
+            elif comparison["has_drop"]:
+                print("Queda abaixo do limite de alerta.", flush=True)
             else:
                 print("Sem queda em relação ao preço anterior.", flush=True)
 
