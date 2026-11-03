@@ -192,3 +192,24 @@ def test_create_product_and_offer():
                     text("DELETE FROM products WHERE id = :id"),
                     {"id": product_id},
                 )
+# Executa o mesmo teste para quatro preços inválidos.
+@pytest.mark.parametrize(
+    "invalid_price",
+    ["0.00", "-10.00", "19.999", "100000000.00"],
+)
+def test_create_price_history_with_invalid_price(invalid_price):
+    # A validação do corpo deve ocorrer antes de consultar a oferta.
+    response = client.post(
+        "/api/offers/1/price-history",
+        json={"price": invalid_price},
+    )
+
+    # Confirma que a API rejeitou o valor recebido.
+    assert response.status_code == 422
+
+    # Confirma que o erro está especificamente no campo price.
+    errors = response.json()["detail"]
+    assert any(
+        error["loc"] == ["body", "price"]
+        for error in errors
+    )
