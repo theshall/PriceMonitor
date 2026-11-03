@@ -1,9 +1,4 @@
-"""
-Testes automatizados do histórico de preços.
-
-Todos os registros são criados no banco price_monitor_test
-e removidos ao final do teste.
-"""
+"""Testa o histórico com preços simulados no banco exclusivo de testes."""
 
 from decimal import Decimal
 
@@ -11,112 +6,103 @@ from sqlalchemy import text
 
 import src.price_history as history
 from src.database import test_engine
+from src.simulated_collector import collect_simulated_price
 
 
 def test_register_and_list_price_history(monkeypatch):
-    """
-    Verifica se um preço pode ser registrado e consultado.
+    # Interrompe o teste se a conexão apontar para outro banco.
+    assert test_engine.url.database == "price_monitor_test", (
+        "Este teste deve usar exclusivamente price_monitor_test."
+    )
 
-    Cria um produto e uma oferta temporários para satisfazer
-    os relacionamentos de chave estrangeira do MySQL.
-    """
-
-    # Redireciona o módulo de histórico para o banco de testes.
+    # Direciona as funções de histórico para o banco de testes.
     monkeypatch.setattr(history, "engine", test_engine)
 
-    # Inicializa os identificadores usados na limpeza.
     product_id = None
     offer_id = None
-    history_id = None
 
     try:
-        # Cria um produto temporário no banco de testes.
+        # Cria os dados temporários em uma única transação.
         with test_engine.begin() as connection:
-            result = connection.execute(
+            product_result = connection.execute(
                 text("""
                     INSERT INTO products (name, brand)
                     VALUES (:name, :brand)
                 """),
                 {
-                    "name": "Produto Histórico Teste",
-                    "brand": "Marca Teste"
-                }
+                    "name": "SIMULADO - Ar-condicionado 9000 BTUs 220 V",
+                    "brand": "Marca de Teste",
+                },
             )
+            product_id = product_result.lastrowid
 
-            product_id = result.lastrowid
-
-        # Cria uma oferta vinculada ao produto temporário.
-        with test_engine.begin() as connection:
-            result = connection.execute(
+            offer_result = connection.execute(
                 text("""
                     INSERT INTO offers (
-                        product_id,
-                        store_name,
-                        price
+                        product_id, store_name, price
                     )
                     VALUES (
-                        :product_id,
-                        :store_name,
-                        :price
+                        :product_id, :store_name, :price
                     )
                 """),
                 {
                     "product_id": product_id,
-                    "store_name": "Loja Histórico Teste",
-                    "price": Decimal("149.90")
-                }
+                    "store_name": "SIMULADO - Loja de Teste",
+                    "price": Decimal("2599.90"),
+                },
             )
+            offer_id = offer_result.lastrowid
 
-            offer_id = result.lastrowid
+        # Simula três consultas consecutivas da mesma oferta.
+        scenarios = ["normal", "price_drop", "unavailable"]
+        saved_ids = []
 
-        # Registra um novo preço no histórico da oferta.
-        history_id = history.register_price(
-            offer_id,
-            Decimal("119.90")
-        )
+        for scenario in scenarios:
+            result = collect_simulated_price(scenario)
 
-        # Confirma que o registro recebeu um identificador.
-        assert history_id is not None
+            # Confirma a origem dos dados usados neste teste.
+            assert result["source"] == "simulated"
 
-        # Consulta os registros associados à oferta.
+            # Registra somente consultas com preço disponível.
+            if result["available"]:
+                history_id = history.register_price(
+                    offer_id,
+                    result["price"],
+                )
+                saved_ids.append(history_id)
+
+        # Consulta o histórico pela função usada na aplicação.
         records = history.list_price_history(offer_id)
 
-        # Verifica se o preço registrado aparece na consulta.
-        assert any(
-            record["id"] == history_id
-            and record["offer_id"] == offer_id
-            and record["price"] == Decimal("119.90")
-            for record in records
-        )
+        # A indisponibilidade deve deixar apenas os dois preços válidos.
+        assert len(records) == 2
+        assert [record["id"] for record in records] == saved_ids
+        assert [record["price"] for record in records] == [
+            Decimal("2599.90"),
+            Decimal("2399.90"),
+        ]
+
+        # Confere a oferta e a data preenchida pelo MySQL.
+        assert all(record["offer_id"] == offer_id for record in records)
+        assert all(record["checked_at"] is not None for record in records)
 
     finally:
-        # Remove primeiro o histórico, depois a oferta
-        # e, por último, o produto.
-        # Essa ordem respeita as chaves estrangeiras.
+        # Remove os registros temporários mesmo se uma verificação falhar.
         with test_engine.begin() as connection:
-            if history_id is not None:
-                connection.execute(
-                    text("""
-                        DELETE FROM price_history
-                        WHERE id = :id
-                    """),
-                    {"id": history_id}
-                )
-
             if offer_id is not None:
+                # Remove o histórico antes da oferta.
                 connection.execute(
-                    text("""
-                        DELETE FROM offers
-                        WHERE id = :id
-                    """),
-                    {"id": offer_id}
+                    text("DELETE FROM price_history WHERE offer_id = :id"),
+                    {"id": offer_id},
+                )
+                connection.execute(
+                    text("DELETE FROM offers WHERE id = :id"),
+                    {"id": offer_id},
                 )
 
             if product_id is not None:
+                # Remove o produto depois da oferta.
                 connection.execute(
-                    text("""
-                        DELETE FROM products
-                        WHERE id = :id
-                    """),
-                    {"id": product_id}
+                    text("DELETE FROM products WHERE id = :id"),
+                    {"id": product_id},
                 )
