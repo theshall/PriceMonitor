@@ -14,7 +14,9 @@ def read_pilot_price(json_path):
         json_path.read_text(encoding="utf-8-sig"),
         parse_float=Decimal,
     )
+    return validate_pilot_price(records)
 
+def validate_pilot_price(records):
     # A consulta piloto deve retornar exatamente um registro.
     if not isinstance(records, list) or len(records) != 1:
         raise ValueError("O JSON deve conter exatamente um registro.")
