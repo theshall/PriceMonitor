@@ -168,8 +168,17 @@ def main():
                 print(message, flush=True)
                 if args.telegram:
                     try:
-                        # Envia o mesmo alerta já gravado no arquivo local.
-                        send_telegram_alert(message)
+                        # Acrescenta o contexto da oferta ao alerta do Telegram.
+                        previous_display = format(previous_price, ".2f").replace(".", ",")
+                        current_display = format(current_price, ".2f").replace(".", ",")
+
+                        telegram_message = (
+                            f"{message}\n\n"
+                            f"Oferta simulada #{offer_id}\n"
+                            f"Preço anterior: R$ {previous_display}\n"
+                            f"Preço atual: R$ {current_display}"
+                        )
+                        send_telegram_alert(telegram_message)
                     except RuntimeError as error:
                         # A falha no envio é registrada e o monitor continua.
                         print(f"Falha no envio ao Telegram: {error}", flush=True)
