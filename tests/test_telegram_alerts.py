@@ -1,11 +1,14 @@
 """Testa o envio de alertas sem chamar a API do Telegram."""
 
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
+from types import SimpleNamespace
+import sys
 
 import httpx
 import pytest
 
 import src.telegram_alerts as telegram
+import send_pending_alert as delivery
 
 
 @pytest.fixture
@@ -47,3 +50,27 @@ def test_connection_error_hides_token(monkeypatch, telegram_config):
 
     # Confere a mensagem que o monitor exibirá no terminal.
     assert str(error.value) == "Falha de conexão com o Telegram."
+
+
+@pytest.mark.parametrize("quiet", [False, True])
+@pytest.mark.parametrize("alert_id", [None, 123])
+def test_quiet_delivery_preserves_success_messages(monkeypatch, capsys, quiet, alert_id):
+    # Substitui a conexão e o envio para testar somente a saída do comando.
+    engine = MagicMock()
+    engine.url = SimpleNamespace(database="price_monitor")
+    connection = engine.begin.return_value.__enter__.return_value
+    connection.execute.return_value.scalar_one.return_value = "price_monitor"
+    monkeypatch.setattr(delivery, "engine", engine)
+    monkeypatch.setattr(
+        delivery, "dispatch_next_telegram_alert", Mock(return_value=alert_id)
+    )
+    monkeypatch.setattr(sys, "argv", ["send_pending_alert.py"] + (["--quiet"] if quiet else []))
+
+    delivery.main()
+    output = capsys.readouterr().out
+    if alert_id is not None:
+        assert "Alerta 123 enviado e confirmado no banco." in output
+    elif quiet:
+        assert output == ""
+    else:
+        assert "Nenhum alerta pendente disponível." in output

@@ -52,6 +52,7 @@ def test_record_before_alert(monkeypatch, current_price, expected_alert):
         offer_result,
         previous_result,
         insert_result,
+        Mock(),  # Para o UPDATE do preço.
     ]
 
     events = []
@@ -68,24 +69,27 @@ def test_record_before_alert(monkeypatch, current_price, expected_alert):
     )
     monkeypatch.setattr(recorder, "engine", fake_engine)
 
-    def send_alert(message):
-        # O envio só pode ocorrer após confirmar o histórico.
-        assert events == ["commit"]
+    def enqueue_alert(received_connection, history_id, message):
+        # A mensagem deve entrar na fila antes da confirmação do preço.
+        assert events == []
+        assert received_connection is connection
+        assert history_id == 100
         assert "Preço anterior: R$ 3000,00" in message
         assert "Preço atual: R$ 2700,00" in message
-        events.append("telegram")
+        events.append("queue")
+        return 200
 
-    sender = Mock(side_effect=send_alert)
-    monkeypatch.setattr(recorder, "send_telegram_alert", sender)
+    enqueue = Mock(side_effect=enqueue_alert)
+    monkeypatch.setattr(recorder, "enqueue_telegram_alert", enqueue)
 
     recorder.main()
 
-    # Os dois cenários devem registrar o preço.
-    assert connection.execute.call_count == 4
+    assert connection.execute.call_count == 5
 
-    if expected_alert:
-        sender.assert_called_once()
-        assert events == ["commit", "telegram"]
-    else:
-        sender.assert_not_called()
-        assert events == ["commit"]
+    # Confere se o cadastro recebe o mesmo preço usado no histórico.
+    update_call = connection.execute.call_args_list[4]
+    assert "UPDATE offers" in str(update_call.args[0])
+    assert update_call.args[1] == {
+        "price": current_price,
+        "offer_id": recorder.OFFER_ID,
+    }
