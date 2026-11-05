@@ -36,6 +36,7 @@ def main():
         next_run_time=first_run,
         max_instances=1,
         coalesce=True,
+        misfire_grace_time=300,
     )
 
     print(
